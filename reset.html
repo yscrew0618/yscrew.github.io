@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>비밀번호 재설정</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#f6f6f9; margin:0; }
+    .wrap { max-width:520px; margin:48px auto; padding:24px; }
+    .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px; }
+    h1 { margin:0 0 6px; color:#111827; font-size:22px; }
+    p { margin:0 0 16px; color:#6b7280; font-size:14px; line-height:1.5; }
+    label { display:block; margin:12px 0 6px; color:#4b5563; font-size:13px; }
+    input { width:100%; max-width: 360px; padding:10px 12px; border:1px solid #d0d4dd; border-radius:10px; font-size:14px; }
+    button {
+      margin-top:14px; width:100%; padding:12px 14px; border:1px solid #f5eedc;
+      background:#f5eedc; border-radius:10px; font-weight:600; cursor:pointer;
+    }
+    button:disabled { opacity:.6; cursor:not-allowed; }
+    .err { margin-top:10px; color:#ef4444; font-size:13px; white-space:pre-wrap; }
+    .ok { margin-top:10px; color:#10b981; font-size:13px; white-space:pre-wrap; }
+    .small { margin-top:10px; color:#6b7280; font-size:12px; }
+    code { background:#f3f4f6; padding:2px 6px; border-radius:6px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>비밀번호 재설정</h1>
+      <p>메일로 받은 링크로 들어오셨다면, 아래에서 새 비밀번호를 설정할 수 있습니다.</p>
+
+      <label>새 비밀번호 (6자 이상)</label>
+      <input id="pw1" type="password" placeholder="새 비밀번호" />
+
+      <label>새 비밀번호 확인</label>
+      <input id="pw2" type="password" placeholder="새 비밀번호 확인" />
+
+      <button id="btn">비밀번호 변경</button>
+
+      <div id="msg" class="err" style="display:none;"></div>
+      <div id="ok" class="ok" style="display:none;"></div>
+
+      <div class="small">
+        문제가 계속되면 링크가 만료되었을 수 있어요. 앱에서 <b>비밀번호 찾기</b>를 다시 눌러 새 메일을 받아주세요.
+      </div>
+    </div>
+  </div>
+
+<script>
+  const SUPABASE_URL = "https://qgsmwysdgycbffkoiaiq.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFnc213eXNkZ3ljYmZma29pYWlxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU5NDA3NzAsImV4cCI6MjA4MTUxNjc3MH0.H20Z1cWQrcpL7Eri_9xNzxiLdIQQHmJpwftMDEaG7qY";
+
+  const $btn = document.getElementById("btn");
+  const $msg = document.getElementById("msg");
+  const $ok  = document.getElementById("ok");
+
+  function showErr(text) {
+    $ok.style.display = "none";
+    $msg.style.display = "block";
+    $msg.textContent = text;
+  }
+  function showOk(text) {
+    $msg.style.display = "none";
+    $ok.style.display = "block";
+    $ok.textContent = text;
+  }
+
+  function parseHashParams() {
+    const h = (location.hash || "").replace(/^#/, "");
+    const p = new URLSearchParams(h);
+    return {
+      access_token: p.get("access_token"),
+      refresh_token: p.get("refresh_token"),
+      type: p.get("type"),
+      error: p.get("error"),
+      error_description: p.get("error_description"),
+    };
+  }
+
+  const params = parseHashParams();
+
+  // 링크 자체가 에러를 포함한 경우
+  if (params.error || params.error_description) {
+    showErr(`링크 오류: ${params.error || ""}\n${params.error_description || ""}`);
+  }
+
+  // recovery 링크인데 토큰이 없는 경우(대부분 redirect 설정이 안 맞거나 링크 만료)
+  if (!params.access_token) {
+    showErr(
+      "토큰을 찾을 수 없습니다.\n" +
+      "1) 앱에서 비밀번호 찾기를 다시 눌러 새 메일을 받거나\n" +
+      "2) Supabase Redirect URL이 reset.html로 설정되어 있는지 확인해주세요.\n\n" +
+      "현재 URL 해시: " + (location.hash || "(없음)")
+    );
+  }
+
+  async function updatePassword(newPassword) {
+    const url = `${SUPABASE_URL.replace(/\/$/, "")}/auth/v1/user`;
+    const res = await fetch(url, {
+      method: "PUT",
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": `Bearer ${params.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ password: newPassword })
+    });
+
+    const text = await res.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch {}
+
+    if (!res.ok) {
+      const msg = (data && (data.msg || data.message || data.error_description || data.error)) || text;
+      throw new Error(msg);
+    }
+    return data;
+  }
+
+  $btn.addEventListener("click", async () => {
+    const pw1 = document.getElementById("pw1").value.trim();
+    const pw2 = document.getElementById("pw2").value.trim();
+
+    if (!params.access_token) return;
+
+    if (pw1.length < 6) return showErr("비밀번호는 6자 이상으로 입력해주세요.");
+    if (pw1 !== pw2) return showErr("비밀번호와 확인 값이 일치하지 않습니다.");
+
+    $btn.disabled = true;
+    try {
+      await updatePassword(pw1);
+      showOk("비밀번호가 변경되었습니다! 이제 앱에서 새 비밀번호로 로그인해주세요.");
+      // 보안상 토큰 노출 방지: 해시 제거
+      history.replaceState({}, document.title, location.pathname);
+    } catch (e) {
+      showErr("변경 실패: " + (e?.message || e));
+    } finally {
+      $btn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
